@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0a0a0a;
+  --surface: #111111;
+  --border: #222222;
+  --primary: #7c3aed;
+  --success: #10b981;
+  --error: #ef4444;
+  --warning: #f59e0b;
+  --foreground: #f9fafb;
+  --muted: #6b7280;
+  --glass-start: rgba(17, 17, 17, 0.95);
+  --glass-end: rgba(17, 17, 17, 0.8);
+}
+
+.light {
+  --background: #ffffff;
+  --surface: #f9fafb;
+  --border: #e5e7eb;
+  --primary: #7c3aed;
+  --success: #10b981;
+  --error: #ef4444;
+  --warning: #f59e0b;
+  --foreground: #09090b;
+  --muted: #6b7280;
+  --glass-start: rgba(255, 255, 255, 0.95);
+  --glass-end: rgba(255, 255, 255, 0.8);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-success: var(--success);
+  --color-error: var(--error);
+  --color-warning: var(--warning);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), sans-serif;
+}
+
+* {
+  border-color: var(--border);
+}
+
+.glass {
+  background: linear-gradient(180deg, var(--glass-start), var(--glass-end));
+  border: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+}
+
+.pulse-dot {
+  box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.65);
+  animation: pulse 1.8s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(124, 58, 237, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(124, 58, 237, 0);
+  }
+}
+
+.animated-grid {
+  background-image: linear-gradient(rgba(124, 58, 237, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(124, 58, 237, 0.1) 1px, transparent 1px);
+  background-size: 42px 42px;
+  animation: grid-pan 28s linear infinite;
+}
+
+@keyframes grid-pan {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(42px, 42px, 0);
+  }
+}
