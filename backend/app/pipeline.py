@@ -5,10 +5,12 @@ import re
 import shutil
 import subprocess
 import tempfile
-import urllib.request
 import uuid
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
+
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
 
 from dotenv import load_dotenv
 from pymongo import DESCENDING, MongoClient
@@ -250,16 +252,37 @@ class LLMClient:
     def __init__(self) -> None:
         key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
         self.api_key = key.strip() if key else None
+        
+        self.llm = None
+        if self.api_key:
+            base_url = LLM_API_BASE
+            if self.api_key.startswith("sk-or-") and "openai.com" in base_url:
+                base_url = "https://openrouter.ai/api/v1"
+            base_url = base_url.rstrip("/")
+            
+            self.llm = ChatOpenAI(
+                api_key=self.api_key,
+                base_url=base_url,
+                model=LLM_MODEL,
+                temperature=0.1,
+                timeout=LLM_TIMEOUT_SECONDS,
+                model_kwargs={
+                    "response_format": {"type": "json_object"},
+                    "extra_headers": {
+                        "HTTP-Referer": "http://localhost:3000",
+                        "X-Title": "Proctor"
+                    }
+                }
+            )
 
     def enabled(self) -> bool:
-        return bool(self.api_key)
+        return bool(self.llm)
 
     def generate_plan(self, error: ErrorEntry, chunks: List[Dict]) -> Optional[Dict]:
         if not self.enabled():
             return None
 
         condensed_chunks = []
-        # Pass all selected chunks, Gemini Flash has 1M context so this is cheap
         for chunk in chunks:
             condensed_chunks.append(
                 {
@@ -270,7 +293,7 @@ class LLMClient:
                 }
             )
 
-        system = (
+        system_text = (
             "You are Proctor, an elite autonomous software debugging agent. "
             "Your goal is to fix the provided error by analyzing the runtime logs and codebase context. "
             "You must follow a rigorous chain-of-thought process:\n"
@@ -290,7 +313,8 @@ class LLMClient:
             "- solution_steps: An array of strings describing the fix steps.\n"
             "- confidence: A number between 0-100 indicating your certainty.\n"
         )
-        user_prompt = {
+        
+        user_data = {
             "error": {
                 "message": error.error,
                 "file": error.file,
@@ -301,57 +325,20 @@ class LLMClient:
             "chunks": condensed_chunks,
             "task": "Find the likely bug location and produce a minimal, safe fix recommendation.",
         }
-        
-        # Ensure base URL creates a valid path
-        base_url = LLM_API_BASE
-        # Robust fallback: If using OpenRouter key but base URL is default OpenAI, switch to OpenRouter
-        if self.api_key and self.api_key.startswith("sk-or-") and "openai.com" in base_url:
-            base_url = "https://openrouter.ai/api/v1"
-        base_url = base_url.rstrip("/")
-        
-        payload = {
-            "model": LLM_MODEL,
-            "temperature": 0.1,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": json.dumps(user_prompt)},
-            ],
-        }
-        
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
-            "HTTP-Referer": "http://localhost:3000",  # Required by OpenRouter for free/low-tier
-            "X-Title": "Proctor",
-        }
 
-        req = urllib.request.Request(
-            f"{base_url}/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers=headers,
-            method="POST",
-        )
+        # Use LangChain PromptTemplate
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_text),
+            ("user", "{user_json}")
+        ])
+
+        chain = prompt | self.llm
 
         try:
-            import time
-            for attempt in range(3):
-                try:
-                    with urllib.request.urlopen(req, timeout=LLM_TIMEOUT_SECONDS) as response:
-                        body = response.read().decode("utf-8")
-                    break
-                except urllib.error.HTTPError as e:
-                    if e.code == 429 and attempt < 2:
-                        time.sleep(2 * (attempt + 1))
-                        continue
-                    raise e
-            else:
-                raise Exception("Retries exhausted")
-
-            parsed = json.loads(body)
-            content = parsed["choices"][0]["message"]["content"]
+            response = chain.invoke({"user_json": json.dumps(user_data)})
+            content = response.content
             
-            # Clean markdown code blocks from response
+            # Clean markdown code blocks from response if present
             if content.strip().startswith("```"):
                 content = content.strip().split("\n", 1)[1]
                 if content.strip().endswith("```"):
@@ -359,13 +346,12 @@ class LLMClient:
             
             plan = json.loads(content)
             return plan
+
         except Exception as e:
             # Propagate API errors to the UI for better UX
             error_msg = str(e)
             
             # --- MOCK FALLBACK FOR DEMO ---
-            # If the API fails (e.g. invalid key), inject a realistic fix for the known demo bug.
-            # This ensures the user sees a valid diagnosis instead of just an API error.
             if "orderController.py" in error.file and "NoneType" in error.error:
                 print(f"LLM API Failed ({error_msg}), using MOCK response for demo.")
                 return {
@@ -384,15 +370,6 @@ class LLMClient:
                     "confidence": 95
                 }
             # ------------------------------
-
-            if hasattr(e, "read"):
-                try:
-                    error_body = e.read().decode()
-                    parsed = json.loads(error_body)
-                    if "error" in parsed:
-                        error_msg = f"{parsed['error'].get('message', error_body)} (Code: {parsed['error'].get('code', 'unknown')})"
-                except:
-                    pass
             
             print(f"LLM generation failed: {error_msg}")
             

@@ -23,7 +23,6 @@ graph LR
 ## 2. Detailed Workflow Steps
 
 ### Phase 1: Initiation & Ingestion
-Gemini
 1.  **User Action**: The user submits a Github URL (e.g., `https://github.com/user/repo`) or selects "Demo Mode" (`demo://quickcart`).
 2.  **API Handling** (`backend/app/main.py`):
     *   The `/api/analyze` endpoint accepts the request.
@@ -57,17 +56,19 @@ The pipeline logic resides in `backend/app/pipeline.py` and executes efficiently
     *   The `PromptAssembler` class takes the stack trace from the error.
     *   It scans the indexed code chunks.
     *   It scores chunks based on keyword matches (e.g., matching filenames in the stack trace get a massive score boost).
+    *   **Context Window**: Increases the context from 3 to 15 chunks (~900 lines) to provide richer debugging context.
 *   **Outcome**: The top 15 most relevant code snippets are selected as "context."
 
 #### **Stage 3: Diagnosing (The AI Agent)**
 *   **Goal**: Understand *why* it broke.
-*   **Tools**: `DiagnosisAgent` + `LLMClient`.
+*   **Tools**: `DiagnosisAgent` + `LLMClient` (LangChain).
 *   **Process**:
     *   A prompt is constructed containing:
         *   The Error Message & Stack Trace.
         *   The 15 Retrieval Code Chunks.
         *   A "System Instruction" enforcing a strict JSON output format.
-    *   **LLM Call**: The request is sent to **Google Gemini 2.0 Flash** via OpenRouter.
+    *   **LLM Call**: The request is sent to **Google Gemini 2.0 Flash** via OpenRouter using **LangChain**.
+    *   **Abstraction**: A `ChatOpenAI` client handles the connection, while a `ChatPromptTemplate` structures the input.
     *   **Reasoning**: The AI performs "Chain-of-Thought" analysis (Analyze -> Localize -> Explain -> Fix).
 *   **Streaming**: The "Root Cause" text is streamed word-by-word to the frontend for a "typing" effect.
 
@@ -78,6 +79,7 @@ The pipeline logic resides in `backend/app/pipeline.py` and executes efficiently
     *   `affected_line`: The line number.
     *   `fix_suggestion`: The valid Python code to replace the buggy segment.
 *   **Completion**: The final diagnosis is marked as `completed` and stored.
+*   **Fallback**: If the API call fails (e.g., auth error), a **Mock Fallback** intercepts the exception and provides a pre-canned fix for the demo bug, ensuring a smooth user experience.
 
 ---
 
